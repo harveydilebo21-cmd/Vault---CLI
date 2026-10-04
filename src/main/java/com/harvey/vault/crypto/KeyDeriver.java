@@ -5,7 +5,7 @@ import javax.crypto.spec.PBEKeySpec;
 import java.security.SecureRandom;
 
 public class KeyDeriver {
-    private static final int SALT_LENGTH = 16;
+    public static final int SALT_LENGTH = 16;
     private static final int ITERATIONS = 600_000;
     private static final int KEY_BITS = 256;
     private final SecureRandom random = new SecureRandom();

@@ -1,11 +1,13 @@
 package com.harvey.vault.crypto;
 
+import javax.crypto.AEADBadTagException;
 import javax.crypto.Cipher;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.ByteBuffer;
 import java.security.SecureRandom;
 import java.util.Arrays;
+
 
 public class CryptoService {
     private static final int IV_LENGTH = 12;
@@ -50,7 +52,6 @@ public class CryptoService {
         buf.get(iv);
         byte[] ciphertext = new byte[buf.remaining()];
         buf.get(ciphertext);
-
         byte[] keyBytes = keyDeriver.derive(password, salt);
         try {
             Cipher cipher = Cipher.getInstance(TRANSFORMATION);
@@ -58,6 +59,9 @@ public class CryptoService {
                     new SecretKeySpec(keyBytes, "AES"),
                     new GCMParameterSpec(TAG_BITS, iv));
             return cipher.doFinal(ciphertext);
+        } catch (AEADBadTagException e) {
+            throw new VaultDecryptionException(
+                    "Wrong password, or the vault file has been modified");
         } finally {
             Arrays.fill(keyBytes, (byte) 0);
         }

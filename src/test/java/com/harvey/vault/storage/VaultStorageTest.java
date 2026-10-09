@@ -6,6 +6,8 @@ import com.harvey.vault.model.Vault;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import java.util.List;
+import java.util.stream.Stream;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -112,5 +114,65 @@ class VaultStorageTest {
         storage.save(sampleVault(), file, password);
         assertEquals(PosixFilePermissions.fromString("rw-------"),
                 Files.getPosixFilePermissions(file));
+    }
+    private List<String> fileNames() throws IOException {
+        try (Stream<Path> s = Files.list(dir)) {
+            return s.map(p -> p.getFileName().toString()).sorted().toList();
+        }
+    }
+
+    /** A storage whose write step "crashes" after writing half the data. */
+    private static VaultStorage crashingStorage() {
+        return new VaultStorage() {
+            @Override
+            void writeBytes(Path path, byte[] data) throws IOException {
+                Files.write(path, java.util.Arrays.copyOf(data, data.length / 2));
+                throw new IOException("simulated crash mid-write");
+            }
+        };
+    }
+
+    @Test
+    void crashDuringSaveLeavesTheExistingVaultIntact() throws Exception {
+        Vault original = sampleVault();
+        storage.save(original, file, password);
+        byte[] before = Files.readAllBytes(file);
+
+        Vault replacement = new Vault();
+        replacement.add(new Entry("other", "u", "p"));
+        assertThrows(IOException.class,
+                () -> crashingStorage().save(replacement, file, password));
+
+        assertArrayEquals(before, Files.readAllBytes(file));
+        assertEquals(original.all(), storage.load(file, password).all());
+    }
+
+    @Test
+    void crashDuringSaveLeavesNoTempFilesBehind() throws Exception {
+        storage.save(sampleVault(), file, password);
+        assertThrows(IOException.class,
+                () -> crashingStorage().save(sampleVault(), file, password));
+        assertEquals(List.of("test.vault"), fileNames());
+    }
+
+    @Test
+    void crashDuringFirstSaveDoesNotCreateTheVaultFile() {
+        assertThrows(IOException.class,
+                () -> crashingStorage().save(sampleVault(), file, password));
+        assertFalse(Files.exists(file));
+    }
+
+    @Test
+    void successfulSaveLeavesNoTempFilesBehind() throws Exception {
+        storage.save(sampleVault(), file, password);
+        storage.save(sampleVault(), file, password);
+        assertEquals(List.of("test.vault"), fileNames());
+    }
+
+    @Test
+    void savingIntoAMissingFolderThrowsIOException() {
+        Path bad = dir.resolve("missing-folder").resolve("test.vault");
+        assertThrows(IOException.class,
+                () -> storage.save(sampleVault(), bad, password));
     }
 }

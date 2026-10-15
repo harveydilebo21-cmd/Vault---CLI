@@ -5,6 +5,7 @@ import com.harvey.vault.generator.PasswordGenerator;
 import com.harvey.vault.model.Vault;
 import com.harvey.vault.storage.VaultFormatException;
 import com.harvey.vault.storage.VaultStorage;
+import com.harvey.vault.policy.MasterPasswordPolicy;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -30,17 +31,11 @@ public class Main {
                 vault = storage.load(file, password);
             } else {
                 terminal.println("No vault found. Creating a new one at " + file);
-                password = terminal.readSecret("Choose a master password: ");
-                char[] repeat = terminal.readSecret("Repeat master password: ");
-                try {
-                    if (isEmpty(password) || !Arrays.equals(password, repeat)) {
-                        terminal.println("Passwords were empty or did not match. Nothing created.");
-                        return;
-                    }
-                } finally {
-                    if (repeat != null) {
-                        Arrays.fill(repeat, '\0');
-                    }
+                terminal.println("Tip: a long passphrase of several words is stronger "
+                        + "than a short complicated password.");
+                password = new MasterPasswordSetup(terminal, new MasterPasswordPolicy()).choose();
+                if (password == null) {
+                    return;
                 }
                 vault = new Vault();
                 storage.save(vault, file, password);

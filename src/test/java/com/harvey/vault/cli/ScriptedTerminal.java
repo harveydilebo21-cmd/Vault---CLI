@@ -14,18 +14,21 @@ class ScriptedTerminal implements Terminal {
         this.inputs = new ArrayDeque<>(List.of(inputs));
     }
 
+
     @Override
     public String readLine(String prompt) {
-        output.append(prompt);
-        return inputs.poll(); // null once the script runs out
+        output.append(prompt).append('\n');
+        return inputs.poll();
     }
 
     @Override
     public char[] readSecret(String prompt) {
-        output.append(prompt);
+        output.append(prompt).append('\n');
         String next = inputs.poll();
         return next == null ? null : next.toCharArray();
     }
+
+
 
     @Override
     public void println(String text) {

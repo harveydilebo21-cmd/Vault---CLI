@@ -88,4 +88,12 @@ class VaultTest {
                 () -> vault.all().add(new Entry("evil", "a", "b")));
         assertEquals(1, vault.size());
     }
+    @Test
+    void clearRemovesAllEntries() {
+        vault.add(new Entry("github", "a", "b"));
+        vault.add(new Entry("zoom", "a", "b"));
+        vault.clear();
+        assertEquals(0, vault.size());
+        assertTrue(vault.all().isEmpty());
+    }
 }

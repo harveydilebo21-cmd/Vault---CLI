@@ -47,4 +47,8 @@ public class Vault {
     public int size() {
         return entries.size();
     }
+    public void clear() {
+        entries.clear();
+    }
+
 }

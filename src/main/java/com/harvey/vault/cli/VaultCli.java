@@ -1,8 +1,10 @@
 package com.harvey.vault.cli;
 
+import com.harvey.vault.crypto.VaultDecryptionException;
 import com.harvey.vault.generator.PasswordGenerator;
 import com.harvey.vault.model.Entry;
 import com.harvey.vault.model.Vault;
+import com.harvey.vault.storage.VaultFormatException;
 import com.harvey.vault.storage.VaultStorage;
 
 import java.io.IOException;
@@ -14,44 +16,100 @@ import java.util.Optional;
 public class VaultCli {
 
     private static final int DEFAULT_LENGTH = 16;
+    private static final int MAX_UNLOCK_ATTEMPTS = 3;
 
     private final Terminal terminal;
     private final VaultStorage storage;
     private final PasswordGenerator generator;
     private final Path file;
     private final Vault vault;
-    private final char[] masterPassword; // needed to re-encrypt on every save
+    private final AutoLock lock;
+    private char[] masterPassword; // our own copy: wiped when locked and on exit
 
     public VaultCli(Terminal terminal, VaultStorage storage, PasswordGenerator generator,
                     Path file, Vault vault, char[] masterPassword) {
+        this(terminal, storage, generator, file, vault, masterPassword, AutoLock.withDefaults());
+    }
+
+    public VaultCli(Terminal terminal, VaultStorage storage, PasswordGenerator generator,
+                    Path file, Vault vault, char[] masterPassword, AutoLock lock) {
         this.terminal = terminal;
         this.storage = storage;
         this.generator = generator;
         this.file = file;
         this.vault = vault;
-        this.masterPassword = masterPassword;
+        this.masterPassword = masterPassword.clone();
+        this.lock = lock;
     }
 
     public void run() {
-        while (true) {
-            showMenu();
-            String choice = terminal.readLine("> ");
-            if (choice == null) {
-                return; // input ended
-            }
-            switch (choice.trim()) {
-                case "1" -> add();
-                case "2" -> get();
-                case "3" -> list();
-                case "4" -> delete();
-                case "5" -> generate();
-                case "6" -> {
-                    terminal.println("Goodbye.");
-                    return;
+        try {
+            while (true) {
+                showMenu();
+                String choice = terminal.readLine("> ");
+                if (choice == null) {
+                    return; // input ended
                 }
-                default -> terminal.println("Unknown option.");
+                if (lock.isExpired()) {
+                    if (!unlock()) {
+                        return;
+                    }
+                    continue; // the command typed while locked is discarded
+                }
+                lock.touch();
+                switch (choice.trim()) {
+                    case "1" -> add();
+                    case "2" -> get();
+                    case "3" -> list();
+                    case "4" -> delete();
+                    case "5" -> generate();
+                    case "6" -> {
+                        terminal.println("Goodbye.");
+                        return;
+                    }
+                    default -> terminal.println("Unknown option.");
+                }
+                lock.touch(); // time spent inside a command is not idle time
+            }
+        } finally {
+            Arrays.fill(masterPassword, '\0');
+        }
+    }
+
+    private void lockSession() {
+        vault.clear();
+        Arrays.fill(masterPassword, '\0');
+        terminal.println("Session locked after inactivity.");
+    }
+
+    /** Returns true if the session was unlocked, false if the program should exit. */
+    private boolean unlock() {
+        lockSession();
+        for (int attempt = 1; attempt <= MAX_UNLOCK_ATTEMPTS; attempt++) {
+            char[] entered = terminal.readSecret("Master password: ");
+            if (entered == null) {
+                return false; // input ended
+            }
+            try {
+                Vault loaded = storage.load(file, entered);
+                for (Entry entry : loaded.all()) {
+                    vault.add(entry);
+                }
+                masterPassword = entered;
+                lock.touch();
+                terminal.println("Unlocked. Please enter your command again.");
+                return true;
+            } catch (VaultDecryptionException | VaultFormatException e) {
+                Arrays.fill(entered, '\0');
+                terminal.println("Could not unlock: wrong master password, or the vault file is damaged.");
+            } catch (IOException e) {
+                Arrays.fill(entered, '\0');
+                terminal.println("Could not read the vault file.");
+                return false;
             }
         }
+        terminal.println("Too many failed attempts. Exiting.");
+        return false;
     }
 
     private void showMenu() {

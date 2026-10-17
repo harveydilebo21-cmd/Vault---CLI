@@ -1,5 +1,6 @@
 package com.harvey.vault.cli;
 
+import com.harvey.vault.clipboard.ClipboardGuard;
 import com.harvey.vault.crypto.VaultDecryptionException;
 import com.harvey.vault.generator.PasswordGenerator;
 import com.harvey.vault.model.Entry;
@@ -11,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 public class VaultCli {
@@ -24,6 +26,7 @@ public class VaultCli {
     private final Path file;
     private final Vault vault;
     private final AutoLock lock;
+    private final ClipboardGuard clipboard;
     private char[] masterPassword; // our own copy: wiped when locked and on exit
 
     public VaultCli(Terminal terminal, VaultStorage storage, PasswordGenerator generator,
@@ -33,6 +36,13 @@ public class VaultCli {
 
     public VaultCli(Terminal terminal, VaultStorage storage, PasswordGenerator generator,
                     Path file, Vault vault, char[] masterPassword, AutoLock lock) {
+        this(terminal, storage, generator, file, vault, masterPassword, lock,
+                ClipboardGuard.disabled());
+    }
+
+    public VaultCli(Terminal terminal, VaultStorage storage, PasswordGenerator generator,
+                    Path file, Vault vault, char[] masterPassword, AutoLock lock,
+                    ClipboardGuard clipboard) {
         this.terminal = terminal;
         this.storage = storage;
         this.generator = generator;
@@ -40,6 +50,7 @@ public class VaultCli {
         this.vault = vault;
         this.masterPassword = masterPassword.clone();
         this.lock = lock;
+        this.clipboard = clipboard;
     }
 
     public void run() {
@@ -57,12 +68,13 @@ public class VaultCli {
                     continue; // the command typed while locked is discarded
                 }
                 lock.touch();
-                switch (choice.trim()) {
+                switch (choice.trim().toLowerCase(Locale.ROOT)) {
                     case "1" -> add();
                     case "2" -> get();
                     case "3" -> list();
                     case "4" -> delete();
                     case "5" -> generate();
+                    case "c" -> copy();
                     case "6" -> {
                         terminal.println("Goodbye.");
                         return;
@@ -72,11 +84,13 @@ public class VaultCli {
                 lock.touch(); // time spent inside a command is not idle time
             }
         } finally {
+            clipboard.clearNow();
             Arrays.fill(masterPassword, '\0');
         }
     }
 
     private void lockSession() {
+        clipboard.clearNow();
         vault.clear();
         Arrays.fill(masterPassword, '\0');
         terminal.println("Session locked after inactivity.");
@@ -119,6 +133,7 @@ public class VaultCli {
         terminal.println("3) List sites");
         terminal.println("4) Delete entry");
         terminal.println("5) Generate password");
+        terminal.println("c) Copy password to clipboard");
         terminal.println("6) Quit");
     }
 
@@ -159,6 +174,22 @@ public class VaultCli {
         }
         terminal.println("Username: " + entry.get().username());
         terminal.println("Password: " + entry.get().password());
+    }
+
+    private void copy() {
+        String site = ask("Site: ");
+        Optional<Entry> entry = vault.get(site);
+        if (entry.isEmpty()) {
+            terminal.println("No entry for site: " + site);
+            return;
+        }
+        if (clipboard.copy(entry.get().password())) {
+            terminal.println("Password copied to the clipboard. It will be cleared in "
+                    + clipboard.clearAfter().toSeconds() + " seconds.");
+        } else {
+            terminal.println("The clipboard is not available here. "
+                    + "Use option 2 to show the password instead.");
+        }
     }
 
     private void list() {

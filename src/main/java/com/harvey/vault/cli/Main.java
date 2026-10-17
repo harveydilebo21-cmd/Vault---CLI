@@ -1,5 +1,8 @@
 package com.harvey.vault.cli;
 
+import com.harvey.vault.clipboard.ClipboardGuard;
+import com.harvey.vault.clipboard.SystemClipboard;
+import com.harvey.vault.clipboard.ThreadScheduler;
 import com.harvey.vault.crypto.VaultDecryptionException;
 import com.harvey.vault.generator.PasswordGenerator;
 import com.harvey.vault.model.Vault;
@@ -43,7 +46,13 @@ public class Main {
             }
 
             AutoLock lock = new AutoLock(timeout(), System::nanoTime);
-            new VaultCli(terminal, storage, new PasswordGenerator(), file, vault, password, lock).run();
+            ClipboardGuard clipboard = new ClipboardGuard(
+                    new SystemClipboard(), new ThreadScheduler(), ClipboardGuard.DEFAULT_CLEAR_AFTER);
+            // also clear the clipboard if the program is stopped with Ctrl+C
+            Runtime.getRuntime().addShutdownHook(new Thread(clipboard::clearNow));
+
+            new VaultCli(terminal, storage, new PasswordGenerator(), file, vault,
+                    password, lock, clipboard).run();
         } catch (VaultDecryptionException | VaultFormatException e) {
             terminal.println("Could not open the vault: " + e.getMessage());
         } catch (IOException e) {
